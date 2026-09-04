@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="color-scheme" content="light dark" />
+<title>Manage Occasions — Occasion Radar</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body class="options">
+  <h1>Occasion Radar</h1>
+  <p class="subhead" style="color:#6b5f68; margin-top:6px;">Personal occasions and festivals/national days are managed separately below.</p>
+
+  <div class="opt-toggle-row">
+    <div class="opt-toggle-copy">
+      <div class="opt-toggle-title">Use as New Tab page</div>
+      <div>Show upcoming occasions each time you open a new tab.</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="newTabToggle" />
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="opt-toggle-row">
+    <div class="opt-toggle-copy">
+      <div class="opt-toggle-title">Notify me when the browser opens</div>
+      <div>If something's coming up in the next 3 days, show a notification when you start Chrome (once a day).</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="startupNotifyToggle" />
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="opt-toggle-row">
+    <div class="opt-toggle-copy">
+      <div class="opt-toggle-title">Spark effect on the new tab page</div>
+      <div>A small cursor-reactive spark trail behind the new tab page. Purely visual — turn it off any time.</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="sparkToggle" />
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <!-- ================= PERSONAL ================= -->
+  <section class="opt-section">
+    <div class="opt-section-head">
+      <h2>Personal</h2>
+      <p>Birthdays, anniversaries, and anything else just for you.</p>
+    </div>
+
+    <div class="month-filter-row personal-month-filter">
+      <label class="field-label" for="personalMonthFilter">Month</label>
+      <select id="personalMonthFilter">
+        <option value="all">All months</option>
+      </select>
+    </div>
+    <div class="opt-list" id="personalList"></div>
+
+    <details class="opt-add-toggle">
+      <summary>Add a personal occasion</summary>
+      <form id="personalForm" class="add-form" style="border-top:none; padding-top:10px;">
+        <div class="row"><input type="text" id="pName" placeholder="Name — e.g. Rahul" required maxlength="60" /></div>
+        <div class="row row-3">
+          <select id="pType">
+            <option value="birthday">Birthday</option>
+            <option value="anniversary">Anniversary</option>
+            <option value="custom">Custom</option>
+          </select>
+          <select id="pMonth"></select>
+          <select id="pDay"></select>
+        </div>
+        <div class="row"><input type="text" id="pNote" placeholder="Note (optional)" maxlength="60" /></div>
+        <div class="row recurrence-row">
+          <span class="recurrence-label">Repeats</span>
+          <label class="radio-pill"><input type="radio" name="pOccurrence" value="yearly" checked /> Every year</label>
+          <label class="radio-pill"><input type="radio" name="pOccurrence" value="once" /> Just once</label>
+        </div>
+        <div class="row" id="pYearRow" hidden>
+          <input type="number" id="pYear" placeholder="Year — e.g. 2026" min="1900" max="2200" />
+        </div>
+        <button type="submit" class="btn-primary" style="max-width:160px;">Add</button>
+      </form>
+    </details>
+  </section>
+
+  <!-- ================= FESTIVALS & NATIONAL DAYS ================= -->
+  <section class="opt-section">
+    <div class="opt-section-head">
+      <h2>Festivals &amp; National Days</h2>
+      <p>Auto-updated daily from Google's public Indian Holidays calendar, so lunar festival dates stay current. Edit or remove anything — your changes are kept as-is and won't be overwritten by future syncs.</p>
+    </div>
+
+    <div class="sync-row">
+      <div id="syncStatus" class="sync-status">Checking sync status…</div>
+      <button type="button" id="syncNowBtn" class="btn-secondary">Sync now</button>
+    </div>
+
+    <div id="orphanedFestivals"></div>
+
+    <div class="filter-row-wrap">
+      <div class="filter-row" id="festFilterRow"></div>
+      <div class="month-filter-row">
+        <label class="field-label" for="festMonthFilter">Month</label>
+        <select id="festMonthFilter">
+          <option value="all">All months</option>
+        </select>
+      </div>
+    </div>
+    <div class="opt-list" id="festList"></div>
+
+    <details class="opt-add-toggle">
+      <summary>Add a festival or national day</summary>
+      <form id="festForm" class="add-form" style="border-top:none; padding-top:10px;">
+        <div class="row"><input type="text" id="fName" placeholder="Name — e.g. Onam" required maxlength="60" /></div>
+        <div class="row row-3">
+          <select id="fType">
+            <option value="festival">Festival</option>
+            <option value="national">National / long weekend</option>
+            <option value="remembrance">Remembrance</option>
+          </select>
+          <select id="fMonth"></select>
+          <select id="fDay"></select>
+        </div>
+        <div class="row"><input type="text" id="fNote" placeholder="Note (optional)" maxlength="60" /></div>
+        <div class="row recurrence-row">
+          <span class="recurrence-label">Date type</span>
+          <label class="radio-pill"><input type="radio" name="fRecurrence" value="fixed" checked /> Fixed — same date every year</label>
+          <label class="radio-pill"><input type="radio" name="fRecurrence" value="lunar" /> Lunar — shifts yearly</label>
+        </div>
+        <button type="submit" class="btn-primary" style="max-width:160px;">Add</button>
+      </form>
+    </details>
+
+    <div class="csv-row">
+      <button type="button" id="exportCsv" class="btn-secondary">Export all as CSV</button>
+      <label class="btn-secondary" for="importCsvInput" style="cursor:pointer;">Import CSV</label>
+      <input type="file" id="importCsvInput" accept=".csv,text/csv" hidden />
+    </div>
+    <div id="csvStatus" class="csv-status" hidden></div>
+    <div class="opt-toggle-copy" style="margin: 6px 0 4px; color:#6b5f68; font-size:11.5px;">
+      CSV format: <code>name,type,month,day,note,recurrence</code> — type is one of <code>birthday</code>, <code>anniversary</code>, <code>festival</code>, <code>national</code>, <code>custom</code>; recurrence is <code>fixed</code> or <code>lunar</code>. Import adds rows to whichever section they belong in automatically.
+    </div>
+  </section>
+
+  <script src="data.js"></script>
+  <script src="common.js"></script>
+  <script src="calendar-sync.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
