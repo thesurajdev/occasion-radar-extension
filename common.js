@@ -9,6 +9,9 @@ const SPARK_PREF_KEY = "btb_spark_enabled"; // boolean: cursor-reactive spark ef
 const LEGACY_EDITED_KEY_NAME = "btb_gcal_user_edited";
 const LEGACY_SEED_PURGE_KEY = "btb_legacy_seed_purged_v1";
 const STATIC_SEED_KEY = "btb_static_seeded_v1"; // one-time: has STATIC_OCCASIONS (data.js) been inserted?
+const REGION_SEED_KEY = "btb_region_seeded_v2";
+const EXTRA_COUNTRIES_SEED_KEY = "btb_extra_countries_seeded_v1"; // one-time (v1.5): insert the packs for all the added countries // one-time: regions backfilled + COUNTRY_OCCASIONS (data.js) inserted?
+const REGION_PREF_KEY = "btb_regions";          // { mode: "all"|"selected", countries: ["IN",…], includeGlobal: bool }
 
 const OCCASION_TYPES = {
   birthday:    "Birthday",
@@ -49,6 +52,105 @@ async function setSparkEnabled(value) {
   await chrome.storage.local.set({ [SPARK_PREF_KEY]: !!value });
 }
 
+// ---------------------------------------------------------------------------
+// Region preferences — which countries' festivals / national days to show.
+// Personal occasions are never filtered.
+// ---------------------------------------------------------------------------
+const TIMEZONE_TO_COUNTRY = {
+  "Asia/Kolkata": "IN", "Asia/Calcutta": "IN",
+  "Asia/Singapore": "SG", "Asia/Dubai": "AE",
+  "Europe/London": "GB", "Europe/Berlin": "DE", "Europe/Paris": "FR",
+  "Pacific/Auckland": "NZ",
+  "America/Toronto": "CA", "America/Vancouver": "CA", "America/Edmonton": "CA",
+  "America/Winnipeg": "CA", "America/Halifax": "CA", "America/St_Johns": "CA", "America/Regina": "CA",
+  "America/New_York": "US", "America/Chicago": "US", "America/Denver": "US",
+  "America/Los_Angeles": "US", "America/Phoenix": "US", "America/Anchorage": "US", "Pacific/Honolulu": "US",
+  "Asia/Tokyo": "JP", "Asia/Seoul": "KR", "Asia/Shanghai": "CN", "Asia/Taipei": "TW", "Asia/Karachi": "PK",
+  "Asia/Dhaka": "BD", "Asia/Colombo": "LK", "Asia/Kathmandu": "NP", "Asia/Manila": "PH", "Asia/Jakarta": "ID",
+  "Asia/Kuala_Lumpur": "MY", "Asia/Bangkok": "TH", "Asia/Ho_Chi_Minh": "VN", "Asia/Riyadh": "SA", "Asia/Qatar": "QA",
+  "Asia/Kuwait": "KW", "Asia/Tehran": "IR", "Asia/Jerusalem": "IL", "Europe/Istanbul": "TR", "Europe/Moscow": "RU",
+  "Europe/Madrid": "ES", "Europe/Rome": "IT", "Europe/Amsterdam": "NL", "Europe/Brussels": "BE", "Europe/Zurich": "CH",
+  "Europe/Vienna": "AT", "Europe/Stockholm": "SE", "Europe/Oslo": "NO", "Europe/Copenhagen": "DK", "Europe/Helsinki": "FI",
+  "Europe/Dublin": "IE", "Europe/Lisbon": "PT", "Europe/Athens": "GR", "Europe/Warsaw": "PL", "Europe/Kyiv": "UA",
+  "Africa/Lagos": "NG", "Africa/Nairobi": "KE", "Africa/Johannesburg": "ZA", "Africa/Cairo": "EG", "Africa/Accra": "GH",
+  "America/Mexico_City": "MX", "America/Sao_Paulo": "BR", "America/Argentina/Buenos_Aires": "AR", "America/Bogota": "CO",
+  "America/Lima": "PE", "America/Santiago": "CL"
+};
+
+// Best-effort guess of the person's country. Timezone first (it reflects where
+// they actually are — plenty of people in India run a US-English browser),
+// then the browser language's region subtag. Returns null if unsupported.
+function detectCountryCode() {
+  const supported = new Set((typeof COUNTRIES !== "undefined" ? COUNTRIES : []).map(c => c.code));
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const byTz = TIMEZONE_TO_COUNTRY[tz] || (tz.startsWith("Australia/") ? "AU" : null);
+    if (byTz && supported.has(byTz)) return byTz;
+  } catch (e) { /* fall through */ }
+  try {
+    const langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language];
+    for (const l of langs) {
+      const m = String(l || "").match(/[-_]([A-Za-z]{2})$/);
+      if (m && supported.has(m[1].toUpperCase())) return m[1].toUpperCase();
+    }
+  } catch (e) { /* fall through */ }
+  return null;
+}
+
+function defaultRegionPrefsForNewInstall() {
+  const cc = detectCountryCode();
+  return { mode: "selected", countries: cc ? [cc] : [], includeGlobal: true };
+}
+
+function normalizeRegionPrefs(p) {
+  const supported = new Set((typeof COUNTRIES !== "undefined" ? COUNTRIES : []).map(c => c.code));
+  const mode = p && p.mode === "all" ? "all" : "selected";
+  const countries = Array.isArray(p && p.countries) ? p.countries.filter(c => supported.has(c)) : [];
+  const includeGlobal = !(p && p.includeGlobal === false);
+  return { mode, countries, includeGlobal };
+}
+
+async function getRegionPrefs() {
+  await ensureOccasionsMigrated(); // guarantees the default has been written
+  const res = await chrome.storage.local.get(REGION_PREF_KEY);
+  return normalizeRegionPrefs(res[REGION_PREF_KEY]);
+}
+
+async function setRegionPrefs(prefs) {
+  await chrome.storage.local.set({ [REGION_PREF_KEY]: normalizeRegionPrefs(prefs) });
+}
+
+// An occasion with no `regions` (birthdays, anniversaries, custom, anything the
+// person added themselves) is always visible.
+function occasionVisible(o, prefs) {
+  const r = o.regions;
+  if (!r || !r.length) return true;
+  if (prefs.mode === "all") return true;
+  return r.some(c => c === "GLOBAL" ? prefs.includeGlobal : prefs.countries.includes(c));
+}
+
+async function getVisibleOccasions() {
+  const [list, prefs] = await Promise.all([getUserOccasions(), getRegionPrefs()]);
+  return list.filter(o => occasionVisible(o, prefs));
+}
+
+// Short human label for the current selection, e.g. "India", "India + United States",
+// "India + 2 more", "All countries", "International days only".
+function regionSummary(prefs) {
+  if (prefs.mode === "all") return "All countries";
+  const names = prefs.countries.map(c => (typeof countryName === "function" ? countryName(c) : c));
+  if (!names.length) return prefs.includeGlobal ? "International days only" : "No regions selected";
+  if (names.length <= 2) return names.join(" + ");
+  return `${names[0]} + ${names.length - 1} more`;
+}
+
+// Should Born To Banger's (Delhi-NCR) activity ideas be shown for this selection?
+function showBtbActivities(prefs) {
+  if (prefs.mode === "all") return true;
+  const allowed = (typeof BTB_ACTIVITY_REGIONS !== "undefined") ? BTB_ACTIVITY_REGIONS : [];
+  return prefs.countries.some(c => allowed.includes(c));
+}
+
 function uid() {
   return "o-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
@@ -76,10 +178,15 @@ async function ensureOccasionsMigrated() {
   }
 
   const res = await chrome.storage.local.get([
-    STORAGE_KEY, LEGACY_EDITED_KEY_NAME, LEGACY_SEED_PURGE_KEY, STATIC_SEED_KEY
+    STORAGE_KEY, LEGACY_EDITED_KEY_NAME, LEGACY_SEED_PURGE_KEY, STATIC_SEED_KEY,
+    REGION_SEED_KEY, REGION_PREF_KEY, EXTRA_COUNTRIES_SEED_KEY
   ]);
   let list = res[STORAGE_KEY] || [];
   const toSet = {};
+  // Captured BEFORE this run touches anything: true for anyone who installed a
+  // pre-region version (they were seeded with the India list), false for a
+  // brand-new install. Decides their default region below.
+  const wasExistingInstall = !!res[STATIC_SEED_KEY];
 
   if (!res[LEGACY_SEED_PURGE_KEY]) {
     const edited = new Set(res[LEGACY_EDITED_KEY_NAME] || []);
@@ -96,6 +203,51 @@ async function ensureOccasionsMigrated() {
       }
     }
     toSet[STATIC_SEED_KEY] = true;
+  }
+
+  // 3. Regions (v1.4): tag the built-in occasions that were seeded before
+  //    regions existed, add the other countries' packs, and pick a default
+  //    region. Idempotent via REGION_SEED_KEY. Anything the person already
+  //    removed stays removed — only the NEW country-pack ids are inserted,
+  //    and existing entries only gain a `regions` field (nothing else about
+  //    them, including user edits, is touched).
+  if (!res[REGION_SEED_KEY]) {
+    if (typeof STATIC_OCCASIONS !== "undefined") {
+      const staticById = new Map(STATIC_OCCASIONS.map(o => [o.id, o]));
+      for (const o of list) {
+        if (o.regions) continue;
+        if (staticById.has(o.id)) o.regions = [...staticById.get(o.id).regions];
+        else if (String(o.id).startsWith("gcal-")) o.regions = ["IN"]; // the only feed before v1.4 was India's
+      }
+    }
+    if (typeof COUNTRY_OCCASIONS !== "undefined") {
+      const existingIds = new Set(list.map(o => o.id));
+      for (const entry of COUNTRY_OCCASIONS) {
+        if (!existingIds.has(entry.id)) list.push({ ...entry });
+      }
+    }
+    if (res[REGION_PREF_KEY] === undefined) {
+      // Existing users keep exactly what they had (India). New installs get
+      // their own country, detected from timezone/locale.
+      toSet[REGION_PREF_KEY] = wasExistingInstall
+        ? { mode: "selected", countries: ["IN"], includeGlobal: true }
+        : defaultRegionPrefsForNewInstall();
+    }
+    toSet[REGION_SEED_KEY] = true;
+  }
+
+  // 4. All-countries (v1.5): insert the packs for the countries added in this
+  //    version. Existing installs were seeded before these existed, so nothing
+  //    here can have been removed by the person yet; by-id check keeps it
+  //    idempotent and never touches an existing entry.
+  if (!res[EXTRA_COUNTRIES_SEED_KEY]) {
+    if (typeof EXTRA_COUNTRY_OCCASIONS !== "undefined") {
+      const existingIds = new Set(list.map(o => o.id));
+      for (const entry of EXTRA_COUNTRY_OCCASIONS) {
+        if (!existingIds.has(entry.id)) list.push({ ...entry });
+      }
+    }
+    toSet[EXTRA_COUNTRIES_SEED_KEY] = true;
   }
 
   if (Object.keys(toSet).length) {
@@ -121,30 +273,72 @@ function nthWeekdayOfMonth(year, month, weekday, nth) {
   return new Date(year, month - 1, 1 + offset + (nth - 1) * 7);
 }
 
-// G-tier occasions (Mother's/Father's/Friendship Day) store a *rule*
-// (floatMonth/floatWeekday/floatNth), not a fixed date — the actual
-// day-of-month is different every year. This resolves that rule into a
-// concrete month/day/year for the current cycle and writes it back onto the
-// occasion, rolling forward to next year once this year's date has passed.
-// Called on every read (cheap — no network, just date math, and a no-op
-// once resolved for the current cycle) so month/day is always correct with
-// zero manual upkeep, and everything downstream (getUpcoming, the Options
-// list, CSV export) can just treat it like a normal fixed-date occasion.
+// Easter Sunday for a given year (Anonymous Gregorian algorithm). Western
+// (Gregorian) Easter — Orthodox Easter is not covered.
+function easterSunday(year) {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+
+// The given weekday strictly BEFORE month/day — e.g. the Monday before May 25
+// (Victoria Day in Canada). weekday: 0=Sun..6=Sat.
+function weekdayBefore(year, month, day, weekday) {
+  const ref = new Date(year, month - 1, day);
+  const back = ((ref.getDay() - weekday + 6) % 7) + 1; // 1..7 days back
+  return new Date(year, month - 1, day - back);
+}
+
+// Resolve a "floating" occasion's rule into a concrete date for `year`.
+// Rule kinds: "nth" (default, legacy shape: floatMonth/floatWeekday/floatNth),
+// "easter" (easterOffset days from Easter Sunday), "before" (beforeMonth/
+// beforeDay/beforeWeekday). Returns null if the stored rule is incomplete.
+function dynamicDateForYear(o, year) {
+  const rule = o.rule || "nth";
+  if (rule === "easter") {
+    if (typeof o.easterOffset !== "number") return null;
+    const e = easterSunday(year);
+    return new Date(year, e.getMonth(), e.getDate() + o.easterOffset);
+  }
+  if (rule === "before") {
+    if (!o.beforeMonth || !o.beforeDay || o.beforeWeekday === undefined || o.beforeWeekday === null) return null;
+    return weekdayBefore(year, o.beforeMonth, o.beforeDay, o.beforeWeekday);
+  }
+  if (!o.floatMonth || o.floatWeekday === undefined || o.floatWeekday === null || !o.floatNth) return null;
+  return nthWeekdayOfMonth(year, o.floatMonth, o.floatWeekday, o.floatNth);
+}
+
+// "Floating" occasions (Mother's Day, Thanksgiving, Easter, Victoria Day…)
+// store a *rule*, not a fixed date — the actual day-of-month is different every
+// year. This resolves that rule into a concrete month/day/year for the current
+// cycle and writes it back onto the occasion, rolling forward to next year once
+// this year's date has passed. Called on every read (cheap — no network, just
+// date math, and a no-op once resolved for the current cycle) so month/day is
+// always correct with zero manual upkeep, and everything downstream
+// (getUpcoming, the Options list, CSV export) can treat it like a fixed-date
+// occasion.
 function refreshFloatingDates(list, today = new Date()) {
   const t0 = new Date(today); t0.setHours(0, 0, 0, 0);
   let changed = false;
   for (const o of list) {
     if (o.recurrence !== "floating") continue;
-    if (!o.floatMonth || o.floatWeekday === undefined || o.floatWeekday === null || !o.floatNth) continue;
     let year = t0.getFullYear();
-    let d = nthWeekdayOfMonth(year, o.floatMonth, o.floatWeekday, o.floatNth);
+    let d = dynamicDateForYear(o, year);
+    if (!d) continue;
     d.setHours(0, 0, 0, 0);
     if (d < t0) {
       year += 1;
-      d = nthWeekdayOfMonth(year, o.floatMonth, o.floatWeekday, o.floatNth);
+      d = dynamicDateForYear(o, year);
     }
-    if (o.month !== o.floatMonth || o.day !== d.getDate() || o.year !== year) {
-      o.month = o.floatMonth;
+    if (o.month !== d.getMonth() + 1 || o.day !== d.getDate() || o.year !== year) {
+      o.month = d.getMonth() + 1;
       o.day = d.getDate();
       o.year = year;
       changed = true;
@@ -318,18 +512,19 @@ function suggestActivities(type, catalog, count = 3) {
 }
 
 function occasionsToCSV(occasions) {
-  const header = "name,type,month,day,note,recurrence,occurrence,year";
+  const header = "name,type,month,day,note,recurrence,occurrence,year,regions";
   const rows = occasions.map(o => {
     const esc = (v) => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v;
-    return [esc(o.name), o.type, o.month, o.day, esc(o.note || ""), o.recurrence || "fixed", o.occurrence || "yearly", o.year || ""].join(",");
+    return [esc(o.name), o.type, o.month, o.day, esc(o.note || ""), o.recurrence || "fixed", o.occurrence || "yearly", o.year || "", (o.regions || []).join("|")].join(",");
   });
   return [header, ...rows].join("\n");
 }
 
-// Small, dependency-free CSV parser for our 8-column format
-// (name, type, month, day, note, recurrence, occurrence, year). Handles
-// quoted fields with embedded commas. The last two columns are optional for
-// backward compatibility with older exports — missing = yearly-recurring.
+// Small, dependency-free CSV parser for our 9-column format
+// (name, type, month, day, note, recurrence, occurrence, year, regions). Handles
+// quoted fields with embedded commas. The last three columns are optional for
+// backward compatibility with older exports — missing = yearly-recurring, and
+// missing regions = always shown. regions is pipe-separated, e.g. IN|US|GLOBAL.
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   if (!lines.length) return [];
@@ -353,14 +548,16 @@ function parseCSV(text) {
     }
     fields.push(cur);
     if (fields.length < 4) continue;
-    const [name, type, month, day, note, recurrence, occurrence, year] = fields.map(f => (f || "").trim());
+    const [name, type, month, day, note, recurrence, occurrence, year, regionsRaw] = fields.map(f => (f || "").trim());
     const m = Number(month), d = Number(day);
     if (!name || !m || !d || m < 1 || m > 12 || d < 1 || d > 31) continue;
     const validType = Object.keys(OCCASION_TYPES).includes(type) ? type : "custom";
     const validRecurrence = recurrence === "lunar" ? "lunar" : "fixed";
     const validOccurrence = occurrence === "once" ? "once" : "yearly";
     const validYear = validOccurrence === "once" ? (Number(year) || undefined) : undefined;
-    rows.push({ name, type: validType, month: m, day: d, note: note || "", recurrence: validRecurrence, occurrence: validOccurrence, year: validYear });
+    const validCodes = new Set(["GLOBAL", ...(typeof COUNTRIES !== "undefined" ? COUNTRIES.map(c => c.code) : [])]);
+    const regions = (regionsRaw || "").split("|").map(r => r.trim().toUpperCase()).filter(r => validCodes.has(r));
+    rows.push({ name, type: validType, month: m, day: d, note: note || "", recurrence: validRecurrence, occurrence: validOccurrence, year: validYear, regions: regions.length ? regions : undefined });
   }
   return rows;
 }
@@ -370,7 +567,7 @@ async function importOccasionsCSV(text) {
   if (!parsed.length) return { added: 0, total: (await getUserOccasions()).length };
   const list = await getUserOccasions();
   for (const row of parsed) {
-    list.push({ id: uid(), name: row.name, month: row.month, day: row.day, type: row.type, note: row.note, recurrence: row.recurrence, occurrence: row.occurrence, year: row.year });
+    list.push({ id: uid(), name: row.name, month: row.month, day: row.day, type: row.type, note: row.note, recurrence: row.recurrence, occurrence: row.occurrence, year: row.year, ...(row.regions ? { regions: row.regions } : {}) });
   }
   await saveUserOccasions(list);
   return { added: parsed.length, total: list.length };
@@ -392,5 +589,5 @@ async function pruneExpiredOnceOccasions(today = new Date()) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { getUserOccasions, saveUserOccasions, addOccasion, updateOccasion, removeOccasion, nextOccurrence, onceOccurrenceDate, daysUntil, getUpcoming, pruneExpiredOnceOccasions, suggestActivities, getUseNewTab, setUseNewTab, getStartupNotify, setStartupNotify, getSparkEnabled, setSparkEnabled, occasionsToCSV, parseCSV, importOccasionsCSV, OCCASION_TYPES, ensureOccasionsMigrated, nthWeekdayOfMonth, refreshFloatingDates };
+  module.exports = { getUserOccasions, saveUserOccasions, addOccasion, updateOccasion, removeOccasion, nextOccurrence, onceOccurrenceDate, daysUntil, getUpcoming, pruneExpiredOnceOccasions, suggestActivities, getUseNewTab, setUseNewTab, getStartupNotify, setStartupNotify, getSparkEnabled, setSparkEnabled, occasionsToCSV, parseCSV, importOccasionsCSV, OCCASION_TYPES, ensureOccasionsMigrated, nthWeekdayOfMonth, refreshFloatingDates, easterSunday, weekdayBefore, dynamicDateForYear, getRegionPrefs, setRegionPrefs, occasionVisible, getVisibleOccasions, regionSummary, showBtbActivities, detectCountryCode, normalizeRegionPrefs };
 }

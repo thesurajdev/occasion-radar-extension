@@ -6,7 +6,7 @@ const LAST_NOTIFY_KEY = "btb_last_startup_notify_date"; // yyyy-mm-dd, so we not
 
 async function refreshBadge() {
   await pruneExpiredOnceOccasions();
-  const occasions = await getUserOccasions();
+  const occasions = await getVisibleOccasions(); // respects the region choice
   const upcoming = getUpcoming(occasions, new Date(), BADGE_WINDOW_DAYS);
   const count = upcoming.length;
   chrome.action.setBadgeText({ text: count ? String(count) : "" });
@@ -31,7 +31,7 @@ async function notifyIfUpcoming() {
   const stored = await chrome.storage.local.get(LAST_NOTIFY_KEY);
   if (stored[LAST_NOTIFY_KEY] === key) return; // already notified today
 
-  const occasions = await getUserOccasions();
+  const occasions = await getVisibleOccasions(); // respects the region choice
   const upcoming = getUpcoming(occasions, new Date(), NOTIFY_WINDOW_DAYS);
   if (!upcoming.length) return;
 
@@ -52,8 +52,8 @@ async function notifyIfUpcoming() {
   await chrome.storage.local.set({ [LAST_NOTIFY_KEY]: key });
 }
 
-async function runCalendarSync({ force = false } = {}) {
-  const result = await syncFestivalsFromGoogle({ force });
+async function runCalendarSync({ force = false, onlyNew = false } = {}) {
+  const result = await syncFestivalsFromGoogle({ force, onlyNew });
   if (result.ok && !result.skipped) {
     await refreshBadge();
     chrome.runtime.sendMessage({ type: "occasions-updated" }).catch(() => {});
@@ -103,8 +103,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     refreshBadge();
     return; // no async response needed
   }
+  if (msg?.type === "regions-updated") {
+    // Region choice changed: refresh the badge now, and pull any feeds the new
+    // selection needs (a no-op if it needs none).
+    refreshBadge();
+    runCalendarSync({ force: true, onlyNew: true });
+    return;
+  }
   if (msg?.type === "force-calendar-sync") {
-    runCalendarSync({ force: true }).then(sendResponse);
+    runCalendarSync({ force: true, onlyNew: !!msg.onlyNew }).then(sendResponse);
     return true; // keep the message channel open for the async sendResponse
   }
   if (msg?.type === "force-blog-sync") {

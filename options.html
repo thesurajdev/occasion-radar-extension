@@ -43,6 +43,34 @@
     </label>
   </div>
 
+  <!-- ================= REGION ================= -->
+  <section class="opt-section" id="region">
+    <div class="opt-section-head">
+      <h2>Region</h2>
+      <p>Choose whose festivals and public holidays you want to see. Birthdays, anniversaries and anything you add yourself are always shown.</p>
+    </div>
+
+    <div class="recurrence-row" role="radiogroup" aria-label="Region mode">
+      <label class="radio-pill"><input type="radio" name="regionMode" value="selected" /> Selected countries</label>
+      <label class="radio-pill"><input type="radio" name="regionMode" value="all" /> All countries</label>
+    </div>
+
+    <input type="search" id="regionSearch" class="region-search" placeholder="Search countries…" aria-label="Search countries" autocomplete="off" />
+    <div class="region-grid" id="regionGrid" role="group" aria-label="Countries"></div>
+
+    <div class="opt-toggle-row">
+      <div class="opt-toggle-copy">
+        <div class="opt-toggle-title">Include international days</div>
+        <div>Days observed worldwide — Valentine's Day, Earth Day, Halloween, International Women's Day and similar.</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="globalToggle" />
+        <span class="slider"></span>
+      </label>
+    </div>
+    <p class="region-note" id="regionNote"></p>
+  </section>
+
   <!-- ================= PERSONAL ================= -->
   <section class="opt-section">
     <div class="opt-section-head">
@@ -89,7 +117,7 @@
   <section class="opt-section">
     <div class="opt-section-head">
       <h2>Festivals &amp; National Days</h2>
-      <p>Auto-updated daily from Google's public Indian Holidays calendar, so lunar festival dates stay current. Edit or remove anything — your changes are kept as-is and won't be overwritten by future syncs.</p>
+      <p>Public holidays and observances for the regions you chose. Fixed dates and rules like "4th Thursday of November" or "Easter + 1 day" are calculated automatically; moon-dependent festivals (Diwali, Eid, Chinese New Year…) are refreshed daily from Google's public holiday calendars. Edit or remove anything — your changes are kept as-is and won't be overwritten by future syncs.</p>
     </div>
 
     <div class="sync-row">
@@ -102,6 +130,11 @@
     <div class="filter-row-wrap">
       <div class="filter-row" id="festFilterRow"></div>
       <div class="month-filter-row">
+        <label class="field-label" for="festRegionFilter">Show</label>
+        <select id="festRegionFilter">
+          <option value="mine">My regions</option>
+          <option value="all">All regions</option>
+        </select>
         <label class="field-label" for="festMonthFilter">Month</label>
         <select id="festMonthFilter">
           <option value="all">All months</option>
@@ -140,7 +173,7 @@
     </div>
     <div id="csvStatus" class="csv-status" hidden></div>
     <div class="opt-toggle-copy" style="margin: 6px 0 4px; color:#6b5f68; font-size:11.5px;">
-      CSV format: <code>name,type,month,day,note,recurrence</code> — type is one of <code>birthday</code>, <code>anniversary</code>, <code>festival</code>, <code>national</code>, <code>custom</code>; recurrence is <code>fixed</code> or <code>lunar</code>. Import adds rows to whichever section they belong in automatically.
+      CSV format: <code>name,type,month,day,note,recurrence,occurrence,year,regions</code> — type is one of <code>birthday</code>, <code>anniversary</code>, <code>festival</code>, <code>national</code>, <code>remembrance</code>, <code>custom</code>; recurrence is <code>fixed</code> or <code>lunar</code>. The last columns are optional; <code>regions</code> is pipe-separated country codes (e.g. <code>IN|US</code>) or <code>GLOBAL</code> — leave it empty to always show the row. Import adds rows to whichever section they belong in automatically.
     </div>
   </section>
 

@@ -79,8 +79,9 @@ function showToast(message) {
 }
 
 async function render() {
-  const occasions = await getUserOccasions();
+  const occasions = await getVisibleOccasions();
   const upcoming = getUpcoming(occasions, new Date(), 60).slice(0, 8);
+  renderRegionLink();
   const list = document.getElementById("upcomingList");
   list.innerHTML = "";
 
@@ -110,7 +111,7 @@ async function render() {
     const card = document.createElement("div");
     card.className = `occ-card ${urgencyClass(item.daysLeft)}`;
     card.dataset.id = item.id;
-    const dateStr = item.date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+    const dateStr = item.date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
     const icon = typeIcon(item.type);
     const typeLabel = item.type === "custom" && item.note ? item.note : (OCCASION_TYPES[item.type] || item.type);
     card.innerHTML = `
@@ -171,6 +172,17 @@ document.getElementById("addForm").addEventListener("submit", async (e) => {
   showToast(`${name} added to your radar`);
   submitBtn.disabled = false;
   nameInput.focus();
+});
+
+async function renderRegionLink() {
+  const el = document.getElementById("regionLinkText");
+  if (!el) return;
+  el.textContent = regionSummary(await getRegionPrefs());
+}
+
+document.getElementById("regionLink").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("options.html#region") });
+  window.close();
 });
 
 document.getElementById("openOptions").addEventListener("click", (e) => {

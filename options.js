@@ -6,6 +6,7 @@ let editingId = null;
 let festFilter = "all";
 let festMonthFilter = "all";
 let personalMonthFilter = "all";
+let festRegionFilter = "mine"; // "mine" = only the regions chosen in the Region section; "all" = every built-in
 
 function fillMonthDay(monthSelId, daySelId) {
   const monthSel = document.getElementById(monthSelId);
@@ -22,11 +23,22 @@ function fillMonthDay(monthSelId, daySelId) {
   }
 }
 
+// Small pill showing which country an occasion belongs to. Personal occasions
+// and anything the person added (no `regions`) get no badge.
+function regionBadgeHTML(o) {
+  if (!o.regions || !o.regions.length) return "";
+  let label;
+  if (o.regions.length === 1) label = o.regions[0] === "GLOBAL" ? "International" : o.regions[0];
+  else label = o.regions.includes("GLOBAL") ? "International" : `${o.regions.length} countries`;
+  const title = o.regions.map(countryName).join(", ");
+  return `<span class="region-badge" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`;
+}
+
 function occasionRowHTML(o, isLocked) {
   const lunarBadge = o.recurrence === "lunar"
     ? `<span class="lunar-badge" title="Date shifts yearly on the lunar calendar — update it manually each year">lunar</span>`
     : o.recurrence === "auto-synced"
-      ? `<span class="lunar-badge" title="Lunar date, kept fresh automatically from Google's Indian Holidays calendar">lunar · auto</span>`
+      ? `<span class="lunar-badge" title="Date kept fresh automatically from Google's public holiday calendar (it can shift year to year)">auto-synced</span>`
       : "";
   const onceBadge = o.occurrence === "once"
     ? `<span class="once-badge" title="One-time event — won't repeat next year">once${o.year ? " · " + o.year : ""}</span>`
@@ -46,7 +58,7 @@ function occasionRowHTML(o, isLocked) {
   return `
     <div class="occ-card" data-id="${o.id}">
       <div class="occ-body">
-        <div class="occ-name">${escapeHtml(o.name)} ${lunarBadge}${onceBadge}${lockedBadge}</div>
+        <div class="occ-name">${escapeHtml(o.name)} ${regionBadgeHTML(o)}${lunarBadge}${onceBadge}${lockedBadge}</div>
         <div class="occ-meta">${escapeHtml(OCCASION_TYPES[o.type] || o.type)} · ${MONTHS[o.month - 1]} ${o.day}${o.note ? " · " + escapeHtml(o.note) : ""}</div>
       </div>
       <div class="occ-actions">
@@ -243,9 +255,10 @@ function renderFestFilters(all) {
   });
 }
 
-async function renderFestivals(all) {
-  renderFestFilters(all);
-  let list = all.filter(o => FESTIVAL_TYPES.includes(o.type));
+async function renderFestivals(all, prefs) {
+  const inScope = festRegionFilter === "mine" ? all.filter(o => occasionVisible(o, prefs)) : all;
+  renderFestFilters(inScope);
+  let list = inScope.filter(o => FESTIVAL_TYPES.includes(o.type));
   if (festFilter === "festival" || festFilter === "national" || festFilter === "remembrance") list = list.filter(o => o.type === festFilter);
   if (festFilter === "needs-update") list = list.filter(o => o.recurrence === "lunar");
   if (festMonthFilter !== "all") list = list.filter(o => o.month === Number(festMonthFilter));
@@ -253,7 +266,10 @@ async function renderFestivals(all) {
 
   const el = document.getElementById("festList");
   if (!list.length) {
-    el.innerHTML = `<div class="empty-state">${festMonthFilter === "all" ? "Nothing here." : `Nothing in ${MONTHS[festMonthFilter - 1]}.`}</div>`;
+    const hint = festRegionFilter === "mine" && festMonthFilter === "all"
+      ? "Nothing here — pick a country in the Region section above, or switch Show to “All regions”."
+      : (festMonthFilter === "all" ? "Nothing here." : `Nothing in ${MONTHS[festMonthFilter - 1]}.`);
+    el.innerHTML = `<div class="empty-state">${hint}</div>`;
     return;
   }
   const editedIds = await getEditedIds();
@@ -305,10 +321,77 @@ async function renderOrphanedFestivals() {
 }
 
 async function renderAll() {
-  const all = await getUserOccasions();
+  const [all, prefs] = await Promise.all([getUserOccasions(), getRegionPrefs()]);
+  renderRegionSection(prefs);
   await renderPersonal(all);
-  await renderFestivals(all);
+  await renderFestivals(all, prefs);
   await renderOrphanedFestivals();
+}
+
+// ---- Region section ---------------------------------------------------------
+
+let regionSearchText = "";
+
+function renderRegionSection(prefs) {
+  document.querySelectorAll('input[name="regionMode"]').forEach(r => { r.checked = r.value === prefs.mode; });
+
+  const grid = document.getElementById("regionGrid");
+  const scrollTop = grid.scrollTop; // keep the list where it was when it re-renders after a click
+  grid.classList.toggle("is-disabled", prefs.mode === "all");
+  const q = regionSearchText.trim().toLowerCase();
+  // Selected countries always stay visible, even when they don't match the search.
+  const shown = COUNTRIES.filter(c => !q || prefs.countries.includes(c.code) ||
+    `${c.name} ${c.aliases || ""} ${c.code}`.toLowerCase().includes(q));
+  grid.innerHTML = shown.map(c => `
+    <label class="radio-pill">
+      <input type="checkbox" class="region-country" value="${c.code}" ${prefs.countries.includes(c.code) ? "checked" : ""} ${prefs.mode === "all" ? "disabled" : ""} />
+      ${escapeHtml(c.name)}
+    </label>`).join("") || `<span class="region-empty">No country matches “${escapeHtml(regionSearchText)}”.</span>`;
+  grid.scrollTop = scrollTop;
+
+  const globalToggle = document.getElementById("globalToggle");
+  globalToggle.checked = prefs.mode === "all" ? true : prefs.includeGlobal;
+  globalToggle.disabled = prefs.mode === "all"; // "All countries" already includes international days
+
+  const notes = [`Showing: ${regionSummary(prefs)}${prefs.mode === "selected" && prefs.includeGlobal ? ", plus international days" : ""}.`];
+  if (prefs.mode === "selected" && !prefs.countries.length) {
+    notes.push(prefs.includeGlobal
+      ? "No country selected yet — you'll see international days and your own occasions."
+      : "No country selected and international days are off — you'll only see your own occasions.");
+  }
+  if (!showBtbActivities(prefs)) {
+    notes.push("Born To Banger activity ideas are only shown when India is selected.");
+  }
+  document.getElementById("regionNote").textContent = notes.join(" ");
+}
+
+function readRegionPrefsFromDom() {
+  const mode = document.querySelector('input[name="regionMode"]:checked')?.value === "all" ? "all" : "selected";
+  const countries = Array.from(document.querySelectorAll(".region-country:checked")).map(el => el.value);
+  const includeGlobal = document.getElementById("globalToggle").checked;
+  return { mode, countries, includeGlobal };
+}
+
+async function saveRegionPrefs() {
+  await setRegionPrefs(readRegionPrefsFromDom());
+  chrome.runtime.sendMessage({ type: "occasions-updated" }); // refresh toolbar badge
+  await renderAll();
+  // Pull any live feeds the new selection needs (no-op if it needs none).
+  const result = await chrome.runtime.sendMessage({ type: "force-calendar-sync", onlyNew: true });
+  await renderSyncStatus();
+  if (result?.ok && !result.skipped) await renderAll();
+}
+
+function initRegionSection() {
+  document.querySelectorAll('input[name="regionMode"]').forEach(r => r.addEventListener("change", saveRegionPrefs));
+  document.getElementById("regionGrid").addEventListener("change", (e) => {
+    if (e.target.classList.contains("region-country")) saveRegionPrefs();
+  });
+  document.getElementById("globalToggle").addEventListener("change", saveRegionPrefs);
+  document.getElementById("regionSearch").addEventListener("input", async (e) => {
+    regionSearchText = e.target.value;
+    renderRegionSection(await getRegionPrefs());
+  });
 }
 
 function showCsvStatus(msg) {
@@ -432,13 +515,27 @@ function formatSyncTime(ms) {
 async function renderSyncStatus() {
   const el = document.getElementById("syncStatus");
   if (!el) return;
+  const btn = document.getElementById("syncNowBtn");
+  const feeds = await getFeedCountries();
+  if (!feeds.length) {
+    // e.g. only the US / UK / etc. selected: nothing needs a network request.
+    el.textContent = "Pick a country above and its holidays, festivals and important dates are pulled from Google Calendar automatically.";
+    if (btn) btn.hidden = true;
+    return;
+  }
+  if (btn) btn.hidden = false;
   const meta = await getSyncMeta();
-  if (meta.status === "error" && meta.lastSync) {
+  const failedNames = (meta.failedFeeds || []).filter(cc => feeds.includes(cc)).map(countryName);
+  if (meta.status === "error" && failedNames.length) {
+    el.textContent = `⚠ Couldn't refresh festival dates for ${failedNames.join(", ")} — showing the last known dates (or the built-in defaults). Other regions synced fine.`;
+  } else if (meta.status === "error" && meta.lastSync) {
     el.textContent = `⚠ Last sync failed — showing dates from ${formatSyncTime(meta.lastSync)} (or the built-in defaults).`;
   } else if (meta.status === "error") {
-    el.textContent = "⚠ Couldn't reach the Google Calendar feed yet — using built-in default dates.";
+    el.textContent = "⚠ Couldn't reach Google Calendar yet — using built-in default dates.";
   } else if (meta.lastSync) {
-    el.textContent = `✓ Synced with Google's Indian Holidays calendar — ${formatSyncTime(meta.lastSync)}.`;
+    const noFeed = (meta.unavailableFeeds || []).filter(cc => feeds.includes(cc)).map(countryName);
+    el.textContent = `✓ Synced with Google's public holiday calendars — ${formatSyncTime(meta.lastSync)}.` +
+      (noFeed.length ? ` Google has no holiday calendar for ${noFeed.join(", ")}, so those use the built-in dates.` : "");
   } else {
     el.textContent = "Not synced yet.";
   }
@@ -472,6 +569,11 @@ document.getElementById("festMonthFilter").addEventListener("change", (e) => {
   festMonthFilter = e.target.value;
   renderAll();
 });
+document.getElementById("festRegionFilter").addEventListener("change", (e) => {
+  festRegionFilter = e.target.value;
+  renderAll();
+});
+initRegionSection();
 renderAll();
 initNewTabToggle();
 initStartupNotifyToggle();

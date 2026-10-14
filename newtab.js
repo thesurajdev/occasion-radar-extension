@@ -1,7 +1,9 @@
 function tickClock() {
   const now = new Date();
-  const time = now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-  const date = now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  // Use the browser's own locale (12/24h clock, date order) rather than a
+  // fixed one, so the page reads naturally anywhere in the world.
+  const time = now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const date = now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   for (const id of ["ntClock", "ntClockOff"]) { const el = document.getElementById(id); if (el) el.textContent = time; }
   for (const id of ["ntDate", "ntDateOff"]) { const el = document.getElementById(id); if (el) el.textContent = date; }
 }
@@ -62,7 +64,8 @@ function activitiesDetails(name, type) {
 }
 
 async function renderOccasions() {
-  const occasions = await getUserOccasions();
+  const [occasions, prefs] = await Promise.all([getVisibleOccasions(), getRegionPrefs()]);
+  const showBtb = showBtbActivities(prefs); // Born To Banger is a Delhi-NCR vendor
   const upcoming = getUpcoming(occasions, new Date(), 30).slice(0, 3);
   const wrap = document.getElementById("ntOccasions");
   const block = document.getElementById("ntOccasionsBlock");
@@ -76,9 +79,9 @@ async function renderOccasions() {
     <div class="nt-card">
       <div class="nt-badge">${daysLabel(item.daysLeft)}<small>away</small></div>
       <div class="nt-card-body">
-        <div class="nt-card-name">${escapeHtml(item.name)}${item.type === "birthday" || item.type === "anniversary" ? "'s " + item.type : ""}${(item.recurrence === "lunar" || item.recurrence === "auto-synced") ? ` <span class="lunar-badge">lunar</span>` : ""}${item.occurrence === "once" ? ` <span class="once-badge">once</span>` : ""}</div>
-        <div class="nt-card-meta">${item.date.toLocaleDateString("en-IN", { day: "numeric", month: "long" })}${item.note ? " · " + escapeHtml(item.note) : ""}</div>
-        ${isSomberOccasion(item) ? "" : activitiesDetails(item.name, item.type)}
+        <div class="nt-card-name">${escapeHtml(item.name)}${item.type === "birthday" || item.type === "anniversary" ? "'s " + item.type : ""}${item.recurrence === "lunar" ? ` <span class="lunar-badge">lunar</span>` : item.recurrence === "auto-synced" ? ` <span class="lunar-badge">synced</span>` : ""}${item.occurrence === "once" ? ` <span class="once-badge">once</span>` : ""}</div>
+        <div class="nt-card-meta">${item.date.toLocaleDateString(undefined, { day: "numeric", month: "long" })}${item.note ? " · " + escapeHtml(item.note) : ""}</div>
+        ${(isSomberOccasion(item) || !showBtb) ? "" : activitiesDetails(item.name, item.type)}
       </div>
     </div>
   `).join("");
@@ -185,6 +188,13 @@ async function renderBlogSlider() {
   wrap.addEventListener("mouseleave", startBlogAutoSlide);
 }
 
+async function renderRegionLabel() {
+  const btn = document.getElementById("ntRegion");
+  if (!btn) return;
+  btn.textContent = `Region: ${regionSummary(await getRegionPrefs())} · change`;
+  btn.onclick = () => { location.href = chrome.runtime.getURL("options.html#region"); };
+}
+
 async function init() {
   const useNewTab = await getUseNewTab();
   document.getElementById("ntFull").hidden = !useNewTab;
@@ -192,6 +202,7 @@ async function init() {
 
   if (useNewTab) {
     renderOccasions();
+    renderRegionLabel();
     renderBlogSlider();
     document.getElementById("ntTurnOff").addEventListener("click", async () => {
       await setUseNewTab(false);

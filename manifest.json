@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Occasion Radar — by Born To Banger",
-  "version": "1.3.2",
-  "description": "Tracks upcoming birthdays, anniversaries & Indian festivals, and suggests party activities before you need them.",
+  "version": "1.5.0",
+  "description": "Tracks birthdays, anniversaries, festivals & public holidays for your country (or all), and suggests party activities in time.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -19,8 +19,16 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage", "alarms", "notifications"],
-  "host_permissions": ["https://calendar.google.com/*", "https://www.borntobanger.in/*"],
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "https://calendar.google.com/*",
+    "https://www.borntobanger.in/*"
+  ],
   "chrome_url_overrides": {
     "newtab": "newtab.html"
   },
