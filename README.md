@@ -1,147 +1,62 @@
-<div align="center">
+# Occasion Radar
 
-# 🎉 Occasion Radar
+A Chrome extension that remembers birthdays, anniversaries, festivals and public holidays so you don't have to. Add your own dates, pick the countries you care about, and the next few weeks are always one click away in the toolbar.
 
-### Keep every important date on your radar.
+**[Install from the Chrome Web Store](https://chromewebstore.google.com/detail/fojkklgdnmnnppkdmbmhjobnihfjhomm)** · Current version: 1.5.0 · Built by [Suraj Dev](https://www.surajdev.com) for [Born To Banger](https://www.borntobanger.in)
 
-A Chrome extension to track birthdays, anniversaries, festivals, public holidays, and special days — with reminders and a helpful New Tab dashboard.
+<!-- Add 3-4 screenshots here: toolbar popup, options page, new-tab dashboard -->
 
-**Created by [Suraj Dev](https://www.surajdev.com) for [Born To Banger](https://www.borntobanger.in)**
+## What it does
 
-</div>
+The toolbar popup lists up to 8 occasions coming up in the next 60 days and marks which ones fall today or tomorrow. A badge on the icon shows how many land within the week.
 
----
+You add your own birthdays and anniversaries, set each one to repeat yearly or happen once, and attach a note. Everything is editable from the options page, and CSV import and export lets you back up the list or move it between browsers.
 
-## ✨ What is Occasion Radar?
+For festivals and holidays there's a built-in set covering 197 countries. Pick one country, several, or all of them. Fixed dates (Independence Day) and floating ones ("2nd Sunday of May") are calculated offline. Lunar festivals like Diwali, Eid and Chinese New Year can't be computed without a calendar, so those are pulled from Google's public holiday calendars. You can edit or delete any entry and a later sync won't overwrite your change.
 
-Occasion Radar helps you remember the moments that matter. Add personal occasions, choose which countries’ festivals and public holidays you want to follow, and check upcoming dates from the Chrome toolbar or your New Tab page.
+There's also an optional new-tab dashboard with a clock, the date, your upcoming occasions, and a carousel of posts from the Born To Banger blog. Turn it off in options and your new tab goes back to normal.
 
-It also connects occasion planning with inspiration from Born To Banger, where you can explore activities and experiences for celebrations.
+If you enable startup notifications, Chrome tells you once a day when something lands within 3 days.
 
-## 🚀 Features
+## Privacy
 
-- **Personal occasions:** Add birthdays, anniversaries, and custom dates.
-- **Upcoming dates:** See occasions grouped by urgency, including today, tomorrow, this week, and later.
-- **Country-based calendars:** Choose selected countries or view occasions from all supported countries.
-- **International days:** Optionally include worldwide observances.
-- **Browser notifications:** Enable notifications for occasions approaching soon.
-- **New Tab dashboard:** See upcoming occasions whenever you open a new tab.
-- **Calendar refresh:** Sync festival and public-holiday information from available Google Calendar feeds.
-- **Born To Banger blog:** Display recent blog posts on the New Tab page.
-- **Flexible settings:** Manage occasions, region preferences, notifications, and visual effects.
-- **No build step:** The extension uses plain HTML, CSS, and JavaScript.
+Your occasions and settings live in `chrome.storage.local`. Nothing you enter is sent to a server.
 
-## 🧭 Get started
+The extension makes two kinds of network requests, both read-only:
 
-1. Install the extension using the instructions below.
-2. Click the Occasion Radar icon in the Chrome toolbar.
-3. Add a birthday, anniversary, or custom occasion.
-4. Select your preferred countries and international-day settings under **Manage all**.
-5. Enable notifications and the New Tab dashboard if you want to use them.
+- Google's public holiday calendar feeds (`calendar.google.com`), for the shifting festivals
+- The Born To Banger blog RSS feed (`borntobanger.in`), for the new-tab carousel
 
-## 📦 Installation
+Permissions requested: `storage`, `alarms`, `notifications`, `unlimitedStorage`, plus host access to those two domains. Privacy policy: https://www.borntobanger.in/legal/privacy-policy
 
-### Load the extension in Chrome
+## How it's built
 
-1. Download this repository by clicking **Code → Download ZIP**, then extract it. Or clone it:
+Manifest V3, plain JavaScript, no build step and no dependencies. The calendar and RSS parsers are hand-written because .ics and RSS 2.0 are simple enough that a library would cost more than it saves.
 
-   ```bash
-   git clone https://github.com/thesurajdev/occasion-radar-extension.git
-   ```
+```
+manifest.json       extension config
+background.js       service worker: badge, alarms, startup notification
+popup.html/js       toolbar popup
+newtab.html/js      optional new-tab dashboard
+options.html/js     manage occasions, regions, CSV import/export
+common.js           storage, date logic, CSV parsing
+data.js             built-in occasions and country packs
+calendar-sync.js    Google holiday feed sync (.ics)
+blog-sync.js        Born To Banger RSS sync
+```
 
-2. Open `chrome://extensions` in Google Chrome.
-3. Turn on **Developer mode**.
-4. Click **Load unpacked**.
-5. Select the extracted repository folder — the folder containing `manifest.json`.
+Sync runs on install, on browser startup, and on an hourly alarm that throttles itself to about once a day. If a fetch fails, the existing data stays as it is and the retry comes sooner.
 
-Occasion Radar should now appear in your extensions list. Pin it to the toolbar for quick access.
+## Run it locally
 
-> This is the manual installation method for development and testing. Follow the Chrome Web Store listing if a published version becomes available.
+1. Clone the repo.
+2. Open `chrome://extensions` and switch on Developer mode.
+3. Click **Load unpacked** and select the project folder.
 
-## ⚙️ Settings
+## Contributing
 
-Open **Manage all** in the extension to configure available options.
+Missing a holiday for your country, or a date that's wrong? Open an issue with the country, the occasion and the correct date. Fixes to `data.js` are the easiest pull requests.
 
-| Setting | Description |
-| --- | --- |
-| Region | Choose selected countries or all supported countries for festivals and public holidays. |
-| International days | Include or exclude worldwide observances. |
-| Personal occasions | Add and manage birthdays, anniversaries, and custom occasions. |
-| New Tab page | Show the Occasion Radar dashboard when opening a new tab. |
-| Startup notifications | Show a browser notification on startup when an occasion is approaching, if enabled. |
-| Spark effect | Turn the decorative cursor-reactive effect on the New Tab page on or off. |
+## License
 
-Calendar coverage depends on the feeds available for the countries you select. Dates and availability may vary by calendar source.
-
-## 🗂️ Project structure
-
-| File or folder | Purpose |
-| --- | --- |
-| `manifest.json` | Chrome Extension Manifest V3 configuration, permissions, popup, and New Tab override. |
-| `popup.html` / `popup.js` | Toolbar popup and quick occasion entry. |
-| `options.html` / `options.js` | Settings, region selection, and occasion management. |
-| `newtab.html` / `newtab.js` | New Tab dashboard. |
-| `newtab-spark.js` | Optional visual spark effect. |
-| `background.js` | Background tasks, alarms, and notifications. |
-| `common.js` | Shared occasion, date, and storage utilities. |
-| `data.js` | Built-in occasion data and supporting constants. |
-| `calendar-sync.js` | Google Calendar feed parsing and synchronization. |
-| `blog-sync.js` | Born To Banger RSS feed synchronization. |
-| `style.css` | Shared styles. |
-| `icons/` | Extension icons. |
-
-## 🔐 Permissions and data
-
-The extension declares these Chrome permissions in `manifest.json`:
-
-- `storage` — stores preferences, personal occasions, and cached information.
-- `alarms` — schedules background refresh tasks.
-- `notifications` — allows the extension to display browser notifications.
-- `unlimitedStorage` — requests expanded storage capacity for extension data.
-
-It also requests host access for Google Calendar and Born To Banger to retrieve calendar feeds and the website’s blog RSS feed.
-
-Personal occasions and preferences are saved in Chrome extension storage on your browser. Calendar and blog content is fetched from the relevant services and cached for display. This README is not a substitute for a full privacy policy; inspect the source code and permissions before installing if you need to assess the extension for your own use.
-
-## 🛠️ Built with
-
-- HTML
-- CSS
-- JavaScript
-- Chrome Extensions Manifest V3
-- Chrome Extension APIs
-- Google Calendar ICS feeds
-- Born To Banger RSS feed
-
-No package manager, framework, or compilation step is required for the manual installation described above.
-
-## 🎈 Made for Born To Banger
-
-Occasion Radar was created by **[Suraj Dev](https://www.surajdev.com)** for **[Born To Banger](https://www.borntobanger.in)**.
-
-Born To Banger helps people celebrate with activities, workshops, entertainment, and event experiences.
-
-- 🌐 Website: [borntobanger.in](https://www.borntobanger.in)
-- 🎨 Explore activities: [borntobanger.in/activities](https://www.borntobanger.in/activities)
-- 👨‍💻 Creator: [Suraj Dev](https://www.surajdev.com)
-
-## 🤝 Feedback and contributions
-
-Found a bug or have an idea to improve Occasion Radar?
-
-1. Check the existing repository issues.
-2. Open an issue with clear steps to reproduce the problem or describe your suggestion.
-3. If you want to contribute code, submit a pull request with a concise explanation of the change.
-
-## 📄 License
-
-No `LICENSE` file is currently included in this repository. Until a license is added, the source code is not explicitly licensed for reuse, modification, or redistribution.
-
----
-
-<div align="center">
-
-**Made with ❤️ by [Suraj Dev](https://www.surajdev.com)**  
-**Created for [Born To Banger](https://www.borntobanger.in)**
-
-</div>
+No license file yet. Add one (MIT is the usual choice) if you want others to reuse the code.
